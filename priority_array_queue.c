@@ -1,7 +1,7 @@
 // CÓDIGO POTENCIALMENTE SENSÍVEL À ANTIVIRUS NÃO FAÇO ABSOLUTAMENTE A MENOR IDEIA!!!
 // Não sei se eu deveria por este arquivo como .h em vez de .c, visto que seu propósito
 // é utilitário.
-// Também não sei se é melhor fazer uma lista em vez de uma fila
+// Também não sei se é melhor fazer uma lista em vez de uma fila.
 
 #include <stdio.h>
 #include <stdlib.h>
