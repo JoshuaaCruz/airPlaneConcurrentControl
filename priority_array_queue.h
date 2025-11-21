@@ -38,8 +38,8 @@ typedef struct {
 
 */
 void initialize(priority_array_queue* queue, int size) {
-    (*queue).priorities = (int*) malloc(size * sizeof(int));
-    (*queue).values = malloc(size * sizeof(person));
+    (*queue).priorities = (unsigned int*) malloc(size * sizeof(int));
+    (*queue).values = (person*) malloc(size * sizeof(person));
     (*queue).head = 0;
     (*queue).tail = -1;
     (*queue).size = 0;
@@ -143,7 +143,8 @@ int is_full(priority_array_queue* queue) {
 
 /*
     Função main criada só para testar a fila.
-*/
+
+
 int main(void) {
     priority_array_queue fila;
     initialize(&fila, 8);
@@ -165,3 +166,4 @@ int main(void) {
     }
     return 0;
 }
+*/

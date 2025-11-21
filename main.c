@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <time.h>
+#include "priority_array_queue.h"
 
 typedef struct {
     int aeronave_id;
