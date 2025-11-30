@@ -1,7 +1,7 @@
 CC = gcc
 # -Wall -Wextra: Mostra todos os warnings
 # -g: Adiciona informações de debug
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -D_POSIX_C_SOURCE=199309L -D_DEFAULT_SOURCE
 
 # Flags do Linker: recomendado para usar a biblioteca <pthread.h>
 LDFLAGS = -pthread
@@ -9,7 +9,7 @@ LDFLAGS = -pthread
 # Nome do executável final
 TARGET = traffic_control
 
-SRCS = main.c
+SRCS = main.c priority_array_queue.c logger.c
 
 all: $(TARGET)
 
