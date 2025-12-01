@@ -160,6 +160,13 @@ void* thread_aeronave(void* arg) {
     }
     
     log_print("Aeronave %d concluiu a rota e pousou.", nave->id);
+    double media_espera = 0.0;
+    if (nave->tamanho_rota > 0) {
+        media_espera = nave->tempo_total_espera / nave->tamanho_rota;
+    }
+    
+    //printf("ESTATISTICA: Aeronave %d concluiu a rota e pousou. Tempo MEDIO de espera: %.6f segundos.\n", 
+          // nave->id, media_espera);
     return NULL;
 }
 
@@ -224,12 +231,24 @@ int main(int argc, char** argv) {
         aeronaves[i].id = i;
         aeronaves[i].prioridade = (rand() % 1000) + 1; //sla prioridade aleatoria
         aeronaves[i].tempo_total_espera = 0.0;
-        aeronaves[i].tamanho_rota = n_sectors;
-        aeronaves[i].rota = (int *)malloc(n_sectors * sizeof(int));
+        //aeronaves[i].tamanho_rota = n_sectors;
+        //aeronaves[i].rota = (int *)malloc(n_sectors * sizeof(int));
         
-        // Gera rota sequencial 0 -> 1 -> 2 ... 
-        for (int j = 0; j < n_sectors; j++) {
-            aeronaves[i].rota[j] = j; 
+        int tamanho_random = (rand() % (n_sectors * 2)) + 1;
+        if (tamanho_random < 2) tamanho_random = 2; // Garante pelo menos 2 passos
+
+        aeronaves[i].tamanho_rota = tamanho_random;
+        aeronaves[i].rota = (int *)malloc(tamanho_random * sizeof(int));
+
+        for (int j = 0; j < tamanho_random; j++) {
+            int setor_sorteado = rand() % n_sectors;
+            
+            if (j > 0) {
+                while (setor_sorteado == aeronaves[i].rota[j-1]) {
+                    setor_sorteado = rand() % n_sectors;
+                }
+            }
+            aeronaves[i].rota[j] = setor_sorteado;
         }
 
         // Init Condicional da Aeronave
@@ -261,6 +280,34 @@ int main(int argc, char** argv) {
     // 3. Espera o controle terminar o loop dele
     pthread_join(t_controle, NULL);
 
+    printf("\n============================================================\n");
+    printf(" RELATÓRIO FINAL DE TEMPOS DE ESPERA\n");
+    printf("============================================================\n");
+    printf("%-10s | %-15s | %-15s\n", "Aeronave", "Rota (Setores)", "Tempo Médio (s)");
+    printf("------------------------------------------------------------\n");
+
+    double soma_medias_global = 0.0;
+
+    for (int i = 0; i < n_threads; i++) {
+        double media_nave = 0.0;
+        
+        if (aeronaves[i].tamanho_rota > 0) {
+            media_nave = aeronaves[i].tempo_total_espera / aeronaves[i].tamanho_rota;
+        }
+
+        soma_medias_global += media_nave;
+
+        printf("Nave %-5d | %-15d | %-15.6f\n", 
+               aeronaves[i].id, 
+               aeronaves[i].tamanho_rota, 
+               media_nave);
+    }
+
+    printf("------------------------------------------------------------\n");
+    if (n_threads > 0) {
+        printf("MÉDIA GERAL DO SISTEMA: %.6f segundos\n", soma_medias_global / n_threads);
+    }
+    printf("============================================================\n");
     
     // Limpeza de Memória (Destroys)
     for(int i=0; i < n_sectors; i++) {
