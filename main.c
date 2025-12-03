@@ -68,7 +68,8 @@ bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Ae
 
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_nsec += 200000000; // +200ms
+    //ts.tv_nsec += 200000000; // +200ms
+    ts.tv_sec += 2; // +2 segundos de paciência
     // Normaliza os nanosegundos (se passar de 1 bi, incrementa segundos)
     if (ts.tv_nsec >= 1000000000) {
         ts.tv_nsec -= 1000000000;
