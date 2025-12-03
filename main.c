@@ -171,7 +171,7 @@ void* thread_aeronave(void* arg) {
 
             // 3. Voa (Simulação de tempo)
             // Manter uso do usleep como recomendado pelo professor
-            usleep((rand() % 500) * 1000); 
+            usleep((rand() % 100 ) * 1000); 
 
             // 4. Atualiza onde aeronava esta
             setor_anterior = proximo_setor;
@@ -186,7 +186,7 @@ void* thread_aeronave(void* arg) {
             }
 
             // 2. Backoff Aleatório (para evitar Livelock/Colisão)
-            usleep((500 + rand() % 500) * 1000); // 0.5s a 1.0s
+            usleep((50 + rand() % 100) * 1000); // 0.5s a 1.0s
 
             i--; //decrementando i para no próximo loop ele tentar novamente esse setor
 
@@ -306,7 +306,8 @@ int main(int argc, char** argv) {
         for (int j = 0; j < tamanho_random; j++) {
             int setor_sorteado = rand() % n_sectors;
             
-            if (j > 0) {
+            //  Só entra no while se houver mais de 1 setor no mundo
+            if (j > 0 && n_sectors > 1) { 
                 while (setor_sorteado == aeronaves[i].rota[j-1]) {
                     setor_sorteado = rand() % n_sectors;
                 }
@@ -342,13 +343,18 @@ int main(int argc, char** argv) {
 
     pthread_join(t_controle, NULL);
 
-    printf("\n============================================================\n");
+    printf("\n===============================================================================\n");
     printf(" RELATÓRIO FINAL DE TEMPOS DE ESPERA\n");
-    printf("============================================================\n");
-    printf("%-10s | %-15s | %-15s\n", "Aeronave", "Rota (Setores)", "Tempo Médio (s)");
-    printf("------------------------------------------------------------\n");
+    printf("===============================================================================\n");
+    // Ajustei a largura das colunas para caber a Prioridade
+    printf("%-10s | %-10s | %-15s | %-15s\n", "Aeronave", "Prioridade", "Rota (Setores)", "Tempo Médio (s)");
+    printf("-------------------------------------------------------------------------------\n");
 
     double soma_medias_global = 0.0;
+    
+    // Variáveis para a média ponderada
+    double soma_tempo_ponderado = 0.0;
+    long soma_total_prioridades = 0;
 
     for (int i = 0; i < n_threads; i++) {
         double media_nave = 0.0;
@@ -359,18 +365,35 @@ int main(int argc, char** argv) {
 
         soma_medias_global += media_nave;
 
-        printf("Nave %-5d | %-15d | %-15.6f\n", 
-               aeronaves[i].id, 
+        // Acumula para a média ponderada: (Tempo * Peso)
+        soma_tempo_ponderado += (media_nave * aeronaves[i].prioridade);
+        
+        // Acumula o peso total
+        soma_total_prioridades += aeronaves[i].prioridade;
+
+        printf("Nave %-5d | %-10d | %-15d | %-15.6f\n", 
+               aeronaves[i].id,
+               aeronaves[i].prioridade, // Exibindo a prioridade na tabela
                aeronaves[i].tamanho_rota, 
                media_nave);
     }
 
-    printf("------------------------------------------------------------\n");
-    if (n_threads > 0) {
-        printf("MÉDIA GERAL DO SISTEMA: %.6f segundos\n", soma_medias_global / n_threads);
-    }
-    printf("============================================================\n");
+    printf("-------------------------------------------------------------------------------\n");
     
+    if (n_threads > 0) {
+        // 1. Média Aritmética Simples (Todas as naves valem o mesmo)
+        printf("MÉDIA SIMPLES (Geral)    : %.6f s\n", soma_medias_global / n_threads);
+        
+        // 2. Média Ponderada (Considera a importância da nave)
+        if (soma_total_prioridades > 0) {
+            double media_ponderada = soma_tempo_ponderado / soma_total_prioridades;
+            printf("MÉDIA PONDERADA (Prio)   : %.6f s\n", media_ponderada);
+        } else {
+            printf("MÉDIA PONDERADA (Prio)   : N/A (Soma das prioridades é 0)\n");
+        }
+    }
+    printf("===============================================================================\n");
+
     // Limpeza de Memória (Destroys)
     for(int i=0; i < n_sectors; i++) {
         destroy(&filas_espera[i]);
