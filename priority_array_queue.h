@@ -9,7 +9,6 @@
 typedef struct {
     int id_aeronave;
     int id_setor_desejado;
-    int tipo_movimento; 
 } DadosSolicitacao;
 
 // --- ESTRUTURA DA LISTA (Baseado no Node do seu C++) ---
@@ -40,5 +39,7 @@ DadosSolicitacao dequeue(priority_array_queue* queue);
 DadosSolicitacao peek(priority_array_queue* queue);
 
 int is_empty(priority_array_queue* queue);
+
+void remove_specific_request(priority_array_queue* queue, int id_aeronave);
 
 #endif

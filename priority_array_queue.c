@@ -47,7 +47,7 @@ void enqueue(priority_array_queue* queue, DadosSolicitacao value, unsigned int p
 }
 
 DadosSolicitacao dequeue(priority_array_queue* queue) {
-    DadosSolicitacao dados_vazios = {-1, -1, -1}; // Retorno de erro caso vazio
+    DadosSolicitacao dados_vazios = {-1, -1}; // Retorno de erro caso vazio
     
     if (is_empty(queue)) return dados_vazios;
 
@@ -64,7 +64,7 @@ DadosSolicitacao dequeue(priority_array_queue* queue) {
 
 DadosSolicitacao peek(priority_array_queue* queue) {
     if (is_empty(queue)) {
-        DadosSolicitacao d = {-1, -1, -1};
+        DadosSolicitacao d = {-1, -1};
         return d;
     }
     return queue->head->data;
@@ -72,4 +72,34 @@ DadosSolicitacao peek(priority_array_queue* queue) {
 
 int is_empty(priority_array_queue* queue) {
     return (queue->head == NULL);
+}
+
+void remove_specific_request(priority_array_queue* queue, int id_aeronave) {
+    if (is_empty(queue)) return;
+
+    Node* atual = queue->head;
+    Node* anterior = NULL;
+
+    // Procura o nó que tem o ID da aeronave
+    while (atual != NULL) {
+        if (atual->data.id_aeronave == id_aeronave) {
+            // ACHOU! Vamos remover.
+            
+            if (anterior == NULL) {
+                // Caso 1: É o primeiro da fila (Head)
+                queue->head = atual->next;
+            } else {
+                // Caso 2: Está no meio ou fim
+                anterior->next = atual->next;
+            }
+            
+            free(atual); // Libera a memória do nó
+            queue->size--;
+            return; // Sai da função, trabalho feito
+        }
+        
+        // Avança os ponteiros
+        anterior = atual;
+        atual = atual->next;
+    }
 }

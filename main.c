@@ -6,6 +6,7 @@
 #include <time.h>
 #include "priority_array_queue.h"
 #include "logger.h"
+#include <stdbool.h> 
 
 // --- ESTRUTURAS DO SISTEMA ---
 
@@ -24,9 +25,9 @@ typedef struct {
     
     // Sincronização
     pthread_cond_t cond_liberacao;  // Onde a aeronave dorme esperando a Torre
-    int permissao_concedida;        // Flag: 0 = esperando, 1 = liberado
+    bool tenhoPermissao;            //Importei o tipo boolean para substituir permissao_concedida
 
-    struct timespec inicio_espera; // Marca a hora que pediu
+    struct timespec inicio_espera; // Marca a hora que pediu permissão
     double tempo_total_espera;     // Acumula (Fim - Inicio) em segundos
 } Aeronave;
 
@@ -39,21 +40,14 @@ int n_sectors_global = 0;  // Armazenar número de setores globalmente
 //Array de filas, uma para cada setor da aplicação
 priority_array_queue *filas_espera;
 
-volatile int sistema_ativo = 1; // 1 = Rodando, 0 = Parar
+volatile bool sistema_ativo = true;
 
 // Mutex Geral: Protege a fila de pedidos e a integridade do sistema
 pthread_mutex_t mutex_geral;        
-pthread_cond_t cond_novo_pedido;    // Avisa o controle que tem gente querendo voar
-pthread_cond_t cond_setor_liberado; // (Opcional) Avisa controle que alguém saiu
+pthread_cond_t cond_alteracao_feita;    // Avisa o controle que houve alteracao nos setores
 
 // --- FUNÇÕES AUXILIARES (INTERFACE) ---
 
-/* Verifica se todas as filas de espera estão vazias
-   Retorna: 1 se TODAS as filas estão vazias
-            0 se HOUVER alguma solicitação pendente em qualquer fila
-   
-   Deve ser chamada COM O MUTEX_GERAL TRAVADO!
-*/
 int todas_filas_vazias() {
     for (int i = 0; i < n_sectors_global; i++) {
         if (!is_empty(&filas_espera[i])) {
@@ -63,48 +57,74 @@ int todas_filas_vazias() {
     return 1;  // Todas as filas estão vazias
 }
 
-/* DEV 2: UTILIZE ESTA FUNÇÃO. NÃO MODIFIQUE.
-   Esta função faz a aeronave "pedir" o setor e dormir até a torre autorizar.
-*/
-void solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Aeronave* minha_struct) {
+bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Aeronave* aeronaveSolicitante) {
 
-    clock_gettime(CLOCK_REALTIME, &minha_struct->inicio_espera); //hora que pediu acesso
+    // Em solicitar_acesso, adicionar:
+        log_print("FILA Setor %d: %d aeronaves esperando", 
+          id_setor_desejado, 
+          (&filas_espera[id_setor_desejado])->size );
+
+    clock_gettime(CLOCK_REALTIME, &aeronaveSolicitante->inicio_espera); //hora que pediu acesso
+
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_nsec += 200000000; // +200ms
+    // Normaliza os nanosegundos (se passar de 1 bi, incrementa segundos)
+    if (ts.tv_nsec >= 1000000000) {
+        ts.tv_nsec -= 1000000000;
+        ts.tv_sec += 1;
+    }
+
     
     pthread_mutex_lock(&mutex_geral); // Trava o sistema para falar com a torre
     
     // 1. Cria o pacote de dados
-    DadosSolicitacao dados;
-    dados.id_aeronave = id_aeronave;
-    dados.id_setor_desejado = id_setor_desejado;
-    dados.tipo_movimento = 1; // 1 = Passagem/Entrada
+    DadosSolicitacao dadosAeronave = {id_aeronave, id_setor_desejado};
     
     log_print("Aeronave %d solicitando Setor %d (Prio: %d)", id_aeronave, id_setor_desejado, prioridade);
 
     // 2. Entra na fila ESPECÍFICA daquele setor
     // O Dev 3 (Controle) agora vai olhar fila por fila
-    enqueue(&filas_espera[id_setor_desejado], dados, prioridade);
+    enqueue(&filas_espera[id_setor_desejado], dadosAeronave, prioridade);
     
     // 3. Acorda a Torre de Controle
-    pthread_cond_signal(&cond_novo_pedido);
+    pthread_cond_signal(&cond_alteracao_feita);
     
     // 4. Dorme e aguarda autorização
-    minha_struct->permissao_concedida = 0;
-    while (minha_struct->permissao_concedida == 0) {
-        pthread_cond_wait(&minha_struct->cond_liberacao, &mutex_geral);
+    aeronaveSolicitante->tenhoPermissao = false;
+
+    int ret = 0; //vai servir para salvar o retorno de timedwait e ver se deu timeout
+    while (aeronaveSolicitante->tenhoPermissao == false && ret == 0) {
+        //Irá dormir até alguém acordar ou até tempo acabar (ret != 0)
+        ret = pthread_cond_timedwait(&aeronaveSolicitante->cond_liberacao, &mutex_geral, &ts); //quando ele dá cond_wait ele libera o mutex geral e espera por alguém que dê signal pra ele "acordar", que no caso só quem dá é a torre de controle
     }
-
-    // Logo após acordar (quando ganha permissão):
-    struct timespec fim_espera;
-    clock_gettime(CLOCK_REALTIME, &fim_espera);
-
-    // Calcula delta e soma (simplificado): conferir se isso aqui tá certo
-    double segundos = (fim_espera.tv_sec - minha_struct->inicio_espera.tv_sec);
-    double nanos = (fim_espera.tv_nsec - minha_struct->inicio_espera.tv_nsec);
-    minha_struct->tempo_total_espera += segundos + (nanos / 1e9);
+    //quando é acordado recupera o mutex geral
     
-    log_print("Aeronave %d obteve permissão para o Setor %d", id_aeronave, id_setor_desejado);
-    
-    pthread_mutex_unlock(&mutex_geral); // Destrava e segue viagem
+    // Acordou pq? Permissão ou timeout?
+    if (aeronaveSolicitante->tenhoPermissao == true)
+    {   
+        // Calcula delta e soma (simplificado): conferir se isso aqui tá certo
+        struct timespec fim_espera;
+        clock_gettime(CLOCK_REALTIME, &fim_espera);
+        double segundos = (fim_espera.tv_sec - aeronaveSolicitante->inicio_espera.tv_sec);
+        double nanos = (fim_espera.tv_nsec - aeronaveSolicitante->inicio_espera.tv_nsec);
+        aeronaveSolicitante->tempo_total_espera += segundos + (nanos / 1e9);
+
+
+        log_print("Aeronave %d obteve permissão para o Setor %d", id_aeronave, id_setor_desejado);
+        pthread_mutex_unlock(&mutex_geral); // Destrava e segue viagem
+        return true;
+
+    } else {
+        // TIMEOUT (ret = ETIMEDOUT)
+
+        // Remove meu próprio pedido da fila antes de sair
+        remove_specific_request(&filas_espera[id_setor_desejado], id_aeronave);
+
+        log_print("Aeronave %d DESISTIU e REMOVEU PEDIDO do Setor %d (Timeout)", id_aeronave, id_setor_desejado);
+        pthread_mutex_unlock(&mutex_geral);
+        return false; 
+    }
 }
 
 /*
@@ -117,8 +137,8 @@ void notificar_saida(int id_setor, int id_aeronave) {
         setores[id_setor].aeronave_atual_id = -1; // Libera o setor
         log_print("Aeronave %d liberou o Setor %d", id_aeronave, id_setor);
         
-        // Avisa a torre que vagou um espaço (importante para evitar deadlock)
-        pthread_cond_signal(&cond_novo_pedido); 
+        // Avisa a torre que vagou um espaço (evitar deadlock)
+        pthread_cond_signal(&cond_alteracao_feita); 
     }
     
     pthread_mutex_unlock(&mutex_geral);
@@ -130,7 +150,7 @@ void notificar_saida(int id_setor, int id_aeronave) {
 void* thread_aeronave(void* arg) {
     Aeronave* nave = (Aeronave*) arg;
     
-    log_print("Aeronave %d iniciou voo.", nave->id);
+    log_print("Aeronave %d decolou.", nave->id);
 
     int setor_anterior = -1; // Começa sem nenhum setor
 
@@ -138,20 +158,39 @@ void* thread_aeronave(void* arg) {
     for (int i = 0; i < nave->tamanho_rota; i++) {
         int proximo_setor = nave->rota[i];
 
-        // 1. Tenta entrar no próximo setor (e dorme se estiver ocupado)
-        solicitar_acesso(nave->id, proximo_setor, nave->prioridade, nave);
+        // 1. Tenta entrar no próximo setor (e dorme se estiver ocupado), caso durma demais, retorna um false
+        bool conseguiuAcesso = solicitar_acesso(nave->id, proximo_setor, nave->prioridade, nave);
 
-        // 2. Agora que garantiu o novo, libera o anterior (se existir)
-        if (setor_anterior != -1) {
-            notificar_saida(setor_anterior, nave->id);
+        if (conseguiuAcesso)
+        {
+
+            if (setor_anterior != -1) //se não foi o primeiro setor que ele conseguiu entrar
+            {
+                notificar_saida(setor_anterior, nave->id); //fala pra central liberar o anterior
+            }
+
+            // 3. Voa (Simulação de tempo)
+            // Manter uso do usleep como recomendado pelo professor
+            usleep((rand() % 500) * 1000); 
+
+            // 4. Atualiza onde aeronava esta
+            setor_anterior = proximo_setor;
+        
+        } else {
+            //não conseguiu acesso, timeout
+            
+            if (setor_anterior != -1) //se essa aeronave esta segurando algum setor
+            {
+                notificar_saida(setor_anterior, nave->id);
+                setor_anterior = -1; //a aeronave agora não controla mais nenhum setor, ela liberou o que ela tinha já que esperou muito tempo tentando pegar o próximo, coitada vai espera mais um pouco até tentar +1 vez o proximo setor
+            }
+
+            // 2. Backoff Aleatório (para evitar Livelock/Colisão)
+            usleep((500 + rand() % 500) * 1000); // 0.5s a 1.0s
+
+            i--; //decrementando i para no próximo loop ele tentar novamente esse setor
+
         }
-
-        // 3. Voa (Simulação de tempo)
-        // Manter uso do usleep como recomendado pelo professor
-        usleep((rand() % 500) * 1000); 
-
-        // 4. Atualiza onde estou
-        setor_anterior = proximo_setor;
     }
 
     // 5. Saiu do espaço aéreo (libera o último setor que ficou segurando)
@@ -165,8 +204,8 @@ void* thread_aeronave(void* arg) {
         media_espera = nave->tempo_total_espera / nave->tamanho_rota;
     }
     
-    //printf("ESTATISTICA: Aeronave %d concluiu a rota e pousou. Tempo MEDIO de espera: %.6f segundos.\n", 
-          // nave->id, media_espera);
+    printf("ESTATISTICA: Aeronave %d concluiu a rota e pousou. Tempo MEDIO de espera: %.6f segundos.\n", 
+          nave->id, media_espera);
     return NULL;
 }
 
@@ -174,12 +213,15 @@ void* thread_aeronave(void* arg) {
 // --- TAREFA DO DEV 3 (CONTROLE) ---
 
 void* thread_controle(void* arg) {
+
+    int n_sectors = *(int*)arg;
+
     while (sistema_ativo) { 
         pthread_mutex_lock(&mutex_geral);
         
         // Se não tem pedidos E o sistema ainda está ativo, dorme
         while (todas_filas_vazias() && sistema_ativo) {
-             pthread_cond_wait(&cond_novo_pedido, &mutex_geral);
+             pthread_cond_wait(&cond_alteracao_feita, &mutex_geral);
         }
         
         if (!sistema_ativo) {
@@ -187,7 +229,26 @@ void* thread_controle(void* arg) {
             break; // Sai do loop para encerrar a thread
         }
 
-        // OUTRAS COISAS
+        // CASO CHEGUE AQUI ENTÃO ALGUMA FILA NÃO ESTÁ VAZIA E O SISTEMA AINDA ESTÁ ATIVO
+
+        for (int i = 0; i < n_sectors; i++) {
+            
+            // Procurando pela fila que não tem aeronava e está vazia
+            if (setores[i].aeronave_atual_id == -1 && !is_empty(&filas_espera[i])) {
+                
+                DadosSolicitacao dadosAviaoAtual = dequeue(&filas_espera[i]);
+                
+                //Atualiza setor com o id da aeronave, diz que essa aeronave tem permissão e acorda ela para voar
+                setores[i].aeronave_atual_id = dadosAviaoAtual.id_aeronave;
+                aeronaves[dadosAviaoAtual.id_aeronave].tenhoPermissao = true;
+                
+                pthread_cond_signal(&aeronaves[dadosAviaoAtual.id_aeronave].cond_liberacao);
+
+                log_print("[TORRE] Autorizado: Nave %d entrando no Setor %d", dadosAviaoAtual.id_aeronave, i);
+            }
+        }
+
+        pthread_mutex_unlock(&mutex_geral);
     }
     return NULL;
 }
@@ -203,18 +264,22 @@ int main(int argc, char** argv) {
     
     int n_sectors = atoi(argv[1]);
     int n_threads = atoi(argv[2]);
+
+    if (n_sectors <= 0 || n_threads <= 0) {
+        printf("Erro: Valores devem ser positivos...\n");
+        return 1;
+    }
     
     n_sectors_global = n_sectors;  // Armazena globalmente para usar em todas_filas_vazias()
 
-    // INICIALIZAÇÃO DAS FILAS (AGORA É UM ARRAY)
+    // INICIALIZAÇÃO DAS FILAS DE ESPERA DOS SETORES
     filas_espera = (priority_array_queue*) malloc(n_sectors * sizeof(priority_array_queue));
     for(int i=0; i < n_sectors; i++) {
         initialize(&filas_espera[i]); // Inicializa uma fila para cada setor
     }
 
     pthread_mutex_init(&mutex_geral, NULL);
-    pthread_cond_init(&cond_novo_pedido, NULL);
-    pthread_cond_init(&cond_setor_liberado, NULL);
+    pthread_cond_init(&cond_alteracao_feita, NULL);
 
     // Inicializa Setores
     setores = (Setor *)malloc(n_sectors * sizeof(Setor));
@@ -229,10 +294,8 @@ int main(int argc, char** argv) {
     aeronaves = (Aeronave *)malloc(n_threads * sizeof(Aeronave));
     for (int i = 0; i < n_threads; i++) {
         aeronaves[i].id = i;
-        aeronaves[i].prioridade = (rand() % 1000) + 1; //sla prioridade aleatoria
+        aeronaves[i].prioridade = (rand() % 1000) + 1; // prioridade aleatoria
         aeronaves[i].tempo_total_espera = 0.0;
-        //aeronaves[i].tamanho_rota = n_sectors;
-        //aeronaves[i].rota = (int *)malloc(n_sectors * sizeof(int));
         
         int tamanho_random = (rand() % (n_sectors * 2)) + 1;
         if (tamanho_random < 2) tamanho_random = 2; // Garante pelo menos 2 passos
@@ -253,7 +316,7 @@ int main(int argc, char** argv) {
 
         // Init Condicional da Aeronave
         pthread_cond_init(&aeronaves[i].cond_liberacao, NULL);
-        aeronaves[i].permissao_concedida = 0;
+        aeronaves[i].tenhoPermissao = false;
     }
 
     // Criação das Threads
@@ -270,14 +333,13 @@ int main(int argc, char** argv) {
     }
 
     //Flag para thread controle morrer
-    sistema_ativo = 0;
+    sistema_ativo = false;
 
     // 2. Acorda o controle (caso ele esteja dormindo no cond_wait) para ele ler o aviso
-    pthread_mutex_lock(&mutex_geral);
-    pthread_cond_broadcast(&cond_novo_pedido); 
+    pthread_mutex_lock(&mutex_geral); 
+    pthread_cond_broadcast(&cond_alteracao_feita); 
     pthread_mutex_unlock(&mutex_geral);
 
-    // 3. Espera o controle terminar o loop dele
     pthread_join(t_controle, NULL);
 
     printf("\n============================================================\n");
@@ -319,7 +381,5 @@ int main(int argc, char** argv) {
     free(setores);
     free(aeronaves);
 
-    //TODO: DEV 1: PRINTAR MÉDIAS DAS AERONAVES E MÉDIA GLOBAL AQUI
-    
     return 0;
 }
