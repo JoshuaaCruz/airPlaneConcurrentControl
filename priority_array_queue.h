@@ -3,15 +3,12 @@
 
 #include <stdlib.h>
 
-//UTILIZANDO AGORA LISTA ENCADEADA, MUITO MAIS FÁCIL, PORÉM DEIXEI A CIRCULAR CASO DISCORDEM
-
-// --- DEFINIÇÃO DOS DADOS (O Contrato) ---
 typedef struct {
     int id_aeronave;
     int id_setor_desejado;
 } DadosSolicitacao;
 
-// --- ESTRUTURA DA LISTA (Baseado no Node do seu C++) ---
+// --- ESTRUTURA DA LISTA
 typedef struct Node {
     DadosSolicitacao data;
     unsigned int priority; // Guardamos a prioridade aqui para comparar
@@ -24,19 +21,15 @@ typedef struct {
     int size;
 } priority_array_queue;
 
-// --- ASSINATURAS ---
 
-void initialize(priority_array_queue* queue); // Mudou: não precisa de size
+void initialize(priority_array_queue* queue); 
 void destroy(priority_array_queue* queue);
 
-// Inserção ordenada (A lógica do insert_sorted do seu C++)
+// Inserção ordenada
 void enqueue(priority_array_queue* queue, DadosSolicitacao value, unsigned int priority);
 
 // Retira o elemento de maior prioridade (o head)
 DadosSolicitacao dequeue(priority_array_queue* queue);
-
-// Espia o primeiro
-DadosSolicitacao peek(priority_array_queue* queue);
 
 int is_empty(priority_array_queue* queue);
 

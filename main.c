@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 199309L // necessário para vscode não reclamar de CLOCK_REALTIME, caso haja outra solução pode ser excluido
+#define _POSIX_C_SOURCE 199309L // necessário para vscode não reclamar de CLOCK_REALTIME
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -25,13 +25,13 @@ typedef struct {
     
     // Sincronização
     pthread_cond_t cond_liberacao;  // Onde a aeronave dorme esperando a Torre
-    bool tenhoPermissao;            //Importei o tipo boolean para substituir permissao_concedida
+    bool tenhoPermissao;
 
     struct timespec inicio_espera; // Marca a hora que pediu permissão
     double tempo_total_espera;     // Acumula (Fim - Inicio) em segundos
 } Aeronave;
 
-// --- VARIÁVEIS GLOBAIS (O ESTADO DO MUNDO) ---
+//  VARIÁVEIS GLOBAIS 
 
 Setor *setores;
 Aeronave *aeronaves;
@@ -46,7 +46,7 @@ volatile bool sistema_ativo = true;
 pthread_mutex_t mutex_geral;        
 pthread_cond_t cond_alteracao_feita;    // Avisa o controle que houve alteracao nos setores
 
-// --- FUNÇÕES AUXILIARES (INTERFACE) ---
+//  FUNÇÕES AUXILIARES 
 
 int todas_filas_vazias() {
     for (int i = 0; i < n_sectors_global; i++) {
@@ -59,7 +59,6 @@ int todas_filas_vazias() {
 
 bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Aeronave* aeronaveSolicitante) {
 
-    // Em solicitar_acesso, adicionar:
         log_print("FILA Setor %d: %d aeronaves esperando", 
           id_setor_desejado, 
           (&filas_espera[id_setor_desejado])->size );
@@ -68,8 +67,7 @@ bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Ae
 
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    //ts.tv_nsec += 200000000; // +200ms
-    ts.tv_sec += 2; // +2 segundos de paciência
+    ts.tv_sec += 3; // +3 segundos de paciência
     // Normaliza os nanosegundos (se passar de 1 bi, incrementa segundos)
     if (ts.tv_nsec >= 1000000000) {
         ts.tv_nsec -= 1000000000;
@@ -79,32 +77,31 @@ bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Ae
     
     pthread_mutex_lock(&mutex_geral); // Trava o sistema para falar com a torre
     
-    // 1. Cria o pacote de dados
+    // Cria o pacote de dados da Aeronave que esta solicitando 
     DadosSolicitacao dadosAeronave = {id_aeronave, id_setor_desejado};
     
     log_print("Aeronave %d solicitando Setor %d (Prio: %d)", id_aeronave, id_setor_desejado, prioridade);
 
-    // 2. Entra na fila ESPECÍFICA daquele setor
-    // O Dev 3 (Controle) agora vai olhar fila por fila
+    // Entra na fila ESPECÍFICA daquele setor
     enqueue(&filas_espera[id_setor_desejado], dadosAeronave, prioridade);
     
-    // 3. Acorda a Torre de Controle
+    //  Acorda a Torre de Controle 
     pthread_cond_signal(&cond_alteracao_feita);
     
-    // 4. Dorme e aguarda autorização
+    //  Dorme e aguarda autorização
     aeronaveSolicitante->tenhoPermissao = false;
 
-    int ret = 0; //vai servir para salvar o retorno de timedwait e ver se deu timeout
+    int ret = 0; //serve para salvar o retorno de timedwait e ver se deu timeout
     while (aeronaveSolicitante->tenhoPermissao == false && ret == 0) {
         //Irá dormir até alguém acordar ou até tempo acabar (ret != 0)
         ret = pthread_cond_timedwait(&aeronaveSolicitante->cond_liberacao, &mutex_geral, &ts); //quando ele dá cond_wait ele libera o mutex geral e espera por alguém que dê signal pra ele "acordar", que no caso só quem dá é a torre de controle
     }
-    //quando é acordado recupera o mutex geral
+    //quando é acordado recupera o mutex geral, por isso tem que dar unlock depois
     
-    // Acordou pq? Permissão ou timeout?
+    // Verificação se recebeu permissão, se não acordou por causa do timeout
     if (aeronaveSolicitante->tenhoPermissao == true)
     {   
-        // Calcula delta e soma (simplificado): conferir se isso aqui tá certo
+        // Calcula diferença e soma 
         struct timespec fim_espera;
         clock_gettime(CLOCK_REALTIME, &fim_espera);
         double segundos = (fim_espera.tv_sec - aeronaveSolicitante->inicio_espera.tv_sec);
@@ -119,7 +116,7 @@ bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Ae
     } else {
         // TIMEOUT (ret = ETIMEDOUT)
 
-        // Remove meu próprio pedido da fila antes de sair
+        // Aeronave remove próprio pedido da fila antes de sair
         remove_specific_request(&filas_espera[id_setor_desejado], id_aeronave);
 
         log_print("Aeronave %d DESISTIU e REMOVEU PEDIDO do Setor %d (Timeout)", id_aeronave, id_setor_desejado);
@@ -128,9 +125,6 @@ bool solicitar_acesso(int id_aeronave, int id_setor_desejado, int prioridade, Ae
     }
 }
 
-/*
-    DEV 2: UTILIZE ESTA FUNÇÃO AO SAIR DE UM SETOR.
-*/
 void notificar_saida(int id_setor, int id_aeronave) {
     pthread_mutex_lock(&mutex_geral);
     
@@ -146,8 +140,6 @@ void notificar_saida(int id_setor, int id_aeronave) {
 }
 
 
-// --- TAREFA DO DEV 2 (AERONAVES) ---
-
 void* thread_aeronave(void* arg) {
     Aeronave* nave = (Aeronave*) arg;
     
@@ -159,7 +151,7 @@ void* thread_aeronave(void* arg) {
     for (int i = 0; i < nave->tamanho_rota; i++) {
         int proximo_setor = nave->rota[i];
 
-        // 1. Tenta entrar no próximo setor (e dorme se estiver ocupado), caso durma demais, retorna um false
+        //  Tenta entrar no próximo setor (e dorme se estiver ocupado), caso durma demais, retorna um false
         bool conseguiuAcesso = solicitar_acesso(nave->id, proximo_setor, nave->prioridade, nave);
 
         if (conseguiuAcesso)
@@ -170,11 +162,11 @@ void* thread_aeronave(void* arg) {
                 notificar_saida(setor_anterior, nave->id); //fala pra central liberar o anterior
             }
 
-            // 3. Voa (Simulação de tempo)
+            //  Voa (Simulação de tempo)
             // Manter uso do usleep como recomendado pelo professor
             usleep((rand() % 100 ) * 1000); 
 
-            // 4. Atualiza onde aeronava esta
+            // Atualiza onde aeronava esta
             setor_anterior = proximo_setor;
         
         } else {
@@ -183,10 +175,11 @@ void* thread_aeronave(void* arg) {
             if (setor_anterior != -1) //se essa aeronave esta segurando algum setor
             {
                 notificar_saida(setor_anterior, nave->id);
-                setor_anterior = -1; //a aeronave agora não controla mais nenhum setor, ela liberou o que ela tinha já que esperou muito tempo tentando pegar o próximo, coitada vai espera mais um pouco até tentar +1 vez o proximo setor
+                setor_anterior = -1; //a aeronave agora não controla mais nenhum setor
+                //ela liberou o que ela tinha já que esperou muito tempo tentando pegar o próximo e vai esperar um tempo random pra tentar pegar o proximo enquanto voa no limbo
             }
 
-            // 2. Backoff Aleatório (para evitar Livelock/Colisão)
+            //  Espera aleatória (para evitar Livelock/Colisão)
             usleep((50 + rand() % 100) * 1000); // 0.5s a 1.0s
 
             i--; //decrementando i para no próximo loop ele tentar novamente esse setor
@@ -194,7 +187,7 @@ void* thread_aeronave(void* arg) {
         }
     }
 
-    // 5. Saiu do espaço aéreo (libera o último setor que ficou segurando)
+    // Saiu do espaço aéreo (libera o último setor que ficou segurando)
     if (setor_anterior != -1) {
         notificar_saida(setor_anterior, nave->id);
     }
@@ -210,8 +203,6 @@ void* thread_aeronave(void* arg) {
     return NULL;
 }
 
-
-// --- TAREFA DO DEV 3 (CONTROLE) ---
 
 void* thread_controle(void* arg) {
 
@@ -286,7 +277,7 @@ int main(int argc, char** argv) {
     setores = (Setor *)malloc(n_sectors * sizeof(Setor));
     for (int i = 0; i < n_sectors; i++) {
         setores[i].id = i;
-        setores[i].aeronave_atual_id = -1; // só para marcar que tá livre
+        setores[i].aeronave_atual_id = -1; // marcação de setor livre
         
         pthread_mutex_init(&setores[i].mutex, NULL);
     }
@@ -337,7 +328,7 @@ int main(int argc, char** argv) {
     //Flag para thread controle morrer
     sistema_ativo = false;
 
-    // 2. Acorda o controle (caso ele esteja dormindo no cond_wait) para ele ler o aviso
+    // Acorda o controle (caso ele esteja dormindo no cond_wait) para ele ler o aviso
     pthread_mutex_lock(&mutex_geral); 
     pthread_cond_broadcast(&cond_alteracao_feita); 
     pthread_mutex_unlock(&mutex_geral);

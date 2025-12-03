@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 199309L // necessário para vscode não reclamar de CLOCK_REALTIME, caso haja outra solução pode ser excluido
+#define _POSIX_C_SOURCE 199309L // necessário para vscode não reclamar de CLOCK_REALTIME
 #include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
