@@ -11,8 +11,6 @@
 // --- ESTRUTURAS DO SISTEMA ---
 
 typedef struct {
-    int id;
-    pthread_mutex_t mutex;       // um mutex por setor
     int aeronave_atual_id;       // -1 se desocupado
 } Setor;
 
@@ -276,10 +274,7 @@ int main(int argc, char** argv) {
     // Inicializa Setores
     setores = (Setor *)malloc(n_sectors * sizeof(Setor));
     for (int i = 0; i < n_sectors; i++) {
-        setores[i].id = i;
-        setores[i].aeronave_atual_id = -1; // marcação de setor livre
-        
-        pthread_mutex_init(&setores[i].mutex, NULL);
+        setores[i].aeronave_atual_id = -1; // marcação de setor livre        
     }
 
     // Inicializa Aeronaves
